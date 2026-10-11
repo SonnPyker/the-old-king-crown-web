@@ -1,0 +1,26 @@
+# Dependencies (restored by `npm install`)
+node_modules/
+
+# Local settings and per-machine files
+.claude/settings.local.json
+.env
+.env.*
+
+# Python tooling (tools/make_*.py)
+__pycache__/
+*.pyc
+
+# Logs and temp files
+*.log
+npm-debug.log*
+*.tmp
+*.swp
+
+# OS files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Editors and IDEs
+.vscode/
+.idea/

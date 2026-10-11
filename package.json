@@ -1,0 +1,16 @@
+{
+  "name": "the-old-king-crown-web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Web adaptation of The Old King's Crown (fan project, personal use)",
+  "scripts": {
+    "build": "node build.mjs",
+    "watch": "node build.mjs --watch",
+    "sim": "node tools/simulate.mjs",
+    "assets": "python tools/make_assets.py"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0"
+  }
+}
