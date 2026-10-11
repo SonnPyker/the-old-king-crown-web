@@ -8,8 +8,9 @@ import { renderLog } from './log.js';
 import * as D from './decision.js';
 import * as M from './menu.js';
 import { Session } from '../engine/index.js';
-import { cardFacts, tacticFacts, anyCard, emblem, tok, pspan } from './cards.js';
+import { cardFacts, tacticFacts, cardDesc, cardFlavour, tacticDesc, descBlock, zoomFace, anyCard, emblem, tok, pspan } from './cards.js';
 import { TACTIC_DEFS } from '../data/tactics.js';
+import { GLOSSARY, GLOSSARY_GROUPS, GLOSSARY_BY_FORM } from '../data/glossary.js';
 
 const SPEED = { instant: 0, fast: 140, normal: 480, slow: 1100 };
 const ZONES = { discard: 'discard', lost: 'lost', sop: 'sop' };
@@ -23,14 +24,100 @@ let suppressClick = false;
 let toastTimer = null;
 let drag = null;
 let lastReqKey = null;
+let popKey = null;
+let lastPhase = null;
+const faceOf = new Map(); // card uid -> 'b' | 'f' as last rendered (drives the reveal flip)
+const seenIn = new Map(); // container id -> Set of card uids last rendered there (drives the deal-in)
+const lastK = new Map(); // stat key -> last value (drives the bump and the +N float)
 
 // ----------------------------------------------------------------------------- helpers
 function setHtml(id, html) {
   if (lastHtml.get(id) === html) return false;
   lastHtml.set(id, html);
   const el = document.getElementById(id);
-  if (el) el.innerHTML = html;
+  if (el) el.innerHTML = markCards(id, html);
   return true;
+}
+
+// Tags cards that just appeared in a container (deal-in) or were turned face-up (reveal).
+// Only the class attribute changes, so the markup and the engine state are untouched.
+function markCards(id, html) {
+  const prev = seenIn.get(id);
+  const cur = new Set();
+  const out = html.replace(/<div class="((?:card|kc)[^"]*)" data-uid="(\d+)"/g, (m, cls, u) => {
+    const uid = +u;
+    cur.add(uid);
+    const face = cls.split(' ').includes('back') ? 'b' : 'f';
+    const before = faceOf.get(uid);
+    faceOf.set(uid, face);
+    if (before === 'b' && face === 'f') return `<div class="${cls} reveal" data-uid="${u}"`;
+    if (prev && !prev.has(uid)) return `<div class="${cls} enter" data-uid="${u}"`;
+    return m;
+  });
+  seenIn.set(id, cur);
+  return out;
+}
+
+// Which player's board the dock shows: follow the player to act when the turn changes, else the chosen board.
+function focusPid(s) {
+  const turn = s.req ? s.req.pid : null;
+  if (turn != null && turn !== ui.activePid) {
+    ui.activePid = turn;
+    ui.boardPid = turn;
+    ui.turnFlip = true;
+  }
+  const n = s.game.S.players.length;
+  return ui.boardPid != null && ui.boardPid < n ? ui.boardPid : viewerPid();
+}
+
+function setDrawer(open) {
+  ui.prefs.drawer = open;
+  savePrefs();
+  const sg = $('#screen-game');
+  if (sg) sg.dataset.drawer = open ? 'open' : 'closed';
+}
+
+// Floating "+N" over a stat that just went up.
+function flyText(el, text) {
+  const r = el.getBoundingClientRect();
+  const f = document.createElement('span');
+  f.className = 'fly';
+  f.textContent = text;
+  f.style.left = `${r.left + r.width / 2}px`;
+  f.style.top = `${r.top}px`;
+  document.body.appendChild(f);
+  setTimeout(() => f.remove(), 1300);
+}
+
+function bumpStats() {
+  for (const el of document.querySelectorAll('[data-k]')) {
+    const k = el.dataset.k;
+    const v = +el.dataset.v;
+    const was = lastK.get(k);
+    lastK.set(k, v);
+    if (was === undefined || was === v) continue;
+    el.classList.remove('bump');
+    void el.offsetWidth;
+    el.classList.add('bump');
+    if (v > was) flyText(el, `+${v - was}`);
+  }
+}
+
+// Season/Year banner when the phase or the year changes.
+function phaseBanner(s) {
+  const S = s.game.S;
+  if (S.phase === 'end') return;
+  const cur = S.phase === 'setup' ? 'spring' : S.phase;
+  const key = `${S.round}:${cur}`;
+  if (lastPhase === null) { lastPhase = key; return; }
+  if (key === lastPhase) return;
+  lastPhase = key;
+  const b = $('#banner');
+  if (!b) return;
+  b.textContent = `${t('phase.' + cur)} · ${t('top.round', { round: Math.max(1, S.round), max: s.game.maxRounds() })}`;
+  b.classList.remove('show');
+  void b.offsetWidth;
+  b.classList.add('show');
 }
 
 export function toast(msg, ms = 2600) {
@@ -61,20 +148,24 @@ function persist() {
 function shell() {
   $('#app').innerHTML = `
     <div id="screen-menu"></div>
-    <div id="screen-game" hidden data-tab="board">
+    <div id="screen-game" hidden data-tab="board" data-drawer="${ui.prefs.drawer === false ? 'closed' : 'open'}">
       <header id="topbar"></header>
       <main id="main">
-        <aside id="left"><section id="road"></section><section id="councils"></section>
-          <section id="logp"><h3>${t('log.title')}</h3><ol id="log"></ol></section></aside>
+        <aside id="left"><div class="drawer-in"><section id="road"></section><section id="councils"></section>
+          <section id="logp"><h3>${t('log.title')}</h3><ol id="log"></ol></section></div></aside>
         <section id="center"><div id="map"></div></section>
-        <section id="opps"></section>
       </main>
+      <button id="drawerBtn" data-act="drawer" title="${t('drawer.toggle')}" aria-label="${t('drawer.toggle')}"></button>
       <section id="decision"></section>
       <footer id="dock"><div id="me"></div><div id="handp"></div></footer>
       <nav id="tabs"></nav>
     </div>
+    <div id="banner"></div>
     <div id="modal" hidden></div><div id="zoom" hidden></div><div id="curtain" hidden></div><div id="toast"></div>`;
   lastHtml.clear();
+  seenIn.clear();
+  faceOf.clear();
+  lastK.clear();
   logCount = -1;
 }
 
@@ -144,8 +235,14 @@ function newSession(opts) {
   ui.viewer = hs.length ? hs[0] : 0;
   ui.locked = false;
   ui.reqKey = null;
+  ui.aiError = null;
   ui.gameOverShown = false;
   ui.tab = 'board';
+  ui.boardPid = null;
+  ui.activePid = null;
+  ui.turnFlip = false;
+  lastPhase = null;
+  popKey = null;
   lastHtml.clear();
   logCount = -1;
   shell();
@@ -174,17 +271,21 @@ function continueGame() {
 }
 
 // ----------------------------------------------------------------------------- AI pacing
+// Every call starts a new run. A run that is still sleeping when a newer one starts stops as soon as it
+// wakes, so a new game or an undo can restart the AI even while the previous loop is still alive.
+let pumpRun = 0;
 async function pump() {
-  if (ui.pumping) return;
   const s = ui.session;
   if (!s) return;
-  ui.pumping = true;
+  const run = ++pumpRun;
   const token = gameToken;
+  const current = () => run === pumpRun && ui.session === s && token === gameToken;
   let steps = 0;
+  ui.aiError = null;
   try {
-    while (ui.session === s && token === gameToken && !s.done && s.req && s.isAI()) {
+    while (current() && !s.done && s.req && s.isAI()) {
       const before = s.log.length;
-      try { s.stepAI(); } catch (e) { console.error(e); toast('Engine error: ' + e.message, 6000); break; }
+      s.stepAI();
       steps++;
       const speed = SPEED[ui.prefs.speed] ?? SPEED.normal;
       const grew = s.log.length > before;
@@ -195,10 +296,12 @@ async function pump() {
         await sleep(grew ? speed : (steps % 6 === 0 ? 16 : 0));
       }
     }
-  } finally {
-    ui.pumping = false;
+  } catch (e) {
+    // Without this the panel would keep saying "thinking" with nothing left running.
+    console.error(e);
+    if (current()) { ui.aiError = e.message; toast('Engine error: ' + e.message, 6000); }
   }
-  if (ui.session !== s || token !== gameToken) return;
+  if (!current()) return;
   persist();
   render();
   checkCurtain();
@@ -235,7 +338,6 @@ function doUndo() {
   const s = ui.session;
   if (!s || !s.canUndo) return;
   gameToken++;
-  ui.pumping = false;
   closeModal();
   s.undo();
   ui.reqKey = null;
@@ -260,20 +362,28 @@ export function render() {
   const g = s.game;
   const req = humanReq();
   D.syncReq(req);
+  const pid = focusPid(s);
   setHtml('topbar', P.topbar(g, s.req));
   setHtml('road', P.roadPanel(g));
   setHtml('councils', P.councilsPanel(g));
   setHtml('map', P.mapPanel(g));
-  setHtml('me', P.mePanel(g));
-  setHtml('handp', P.handPanel(g, req));
-  setHtml('opps', P.oppsPanel(g, s.req));
-  setHtml('tabs', ['board', 'me', 'opps', 'log'].map((k) => `<button data-act="tab" data-tab="${k}" class="${ui.tab === k ? 'on' : ''}">${t('tab.' + k)}</button>`).join(''));
+  setHtml('me', P.mePanel(g, pid));
+  setHtml('handp', P.handPanel(g, pid));
+  setHtml('tabs', ['board', 'me', 'log'].map((k) => `<button data-act="tab" data-tab="${k}" class="${ui.tab === k ? 'on' : ''}">${t('tab.' + k)}</button>`).join(''));
+  if (ui.turnFlip) {
+    ui.turnFlip = false;
+    for (const el of [$('#me'), $('#handp')]) {
+      el.classList.remove('turning');
+      void el.offsetWidth;
+      el.classList.add('turning');
+    }
+  }
 
   // decision panel
   let dec;
   if (s.done) dec = `<div class="dec-wait"><b>${t('phase.end')}</b><button class="primary" data-act="showEnd">${t('end.title')}</button></div>`;
   else if (req) dec = D.decisionHtml(g, req);
-  else if (s.req) dec = D.waitingHtml(g, s.req, g.P(s.req.pid).name);
+  else if (s.req) dec = D.waitingHtml(g, s.req, g.P(s.req.pid).name, ui.aiError);
   else dec = '';
   const decEl = $('#decision');
   const body0 = decEl.querySelector('.dec-body');
@@ -281,8 +391,13 @@ export function render() {
   const changed = setHtml('decision', dec);
   if (changed && ui.reqKey === lastReqKey) { const b = decEl.querySelector('.dec-body'); if (b) b.scrollTop = sc; }
   lastReqKey = ui.reqKey;
+  // the popup pops in once per new decision; keep the class while the same decision is re-rendered
+  const fresh = !!req && ui.reqKey !== popKey;
+  const keep = decEl.classList.contains('pop-in');
+  if (fresh) { popKey = ui.reqKey; ui.decCollapsed = false; } // a new decision always opens, even if it was folded
   decEl.className = req ? 'active f-' + g.P(req.pid).faction : (s.req ? 'ai' : '');
   if (ui.decCollapsed) decEl.classList.add('collapsed');
+  if (fresh || (keep && req)) decEl.classList.add('pop-in');
 
   // log
   if (g.logEntries.length !== logCount) {
@@ -293,6 +408,8 @@ export function render() {
     if (stick) ol.scrollTop = ol.scrollHeight;
   }
   applyHighlights(g, req);
+  phaseBanner(s);
+  bumpStats();
 }
 
 function applyHighlights(g, req) {
@@ -355,8 +472,34 @@ function gameMenuModal() {
 }
 
 function rulesModal() {
-  openModal(`<h2>${t('menu.rules')}</h2><div class="refs">
+  openModal(`<h2>${t('menu.rules')}</h2>
+    <div class="gm"><button class="big" data-act="glossary">📖 ${t('gloss.open')}</button></div>
+    <div class="refs">
     <img src="${IMG('ref/ref_sequence.webp')}" alt="Sequence of play"><img src="${IMG('ref/ref_actions.webp')}" alt="Actions reference"></div>`, 'm-rules');
+}
+
+// Glossary: the game terms as they are printed on the cards (English), with the Vietnamese name and the meaning.
+const glossRow = (e) => `<tr><td><b class="term">${esc(e.en)}</b></td><td>${esc(e.vi)}</td><td>${esc((e.def && (lang === 'en' ? e.def.en : e.def.vi)) || '')}</td></tr>`;
+const groupTitle = (gid) => ({
+  round: t('gloss.group.round'), map: t('gloss.group.map'), zone: t('gloss.group.zone'),
+  res: t('gloss.group.res'), act: t('gloss.group.act'), unit: t('gloss.group.unit'),
+})[gid];
+function glossaryModal() {
+  const groups = GLOSSARY_GROUPS.map((gid) => `<section class="gl-group"><h3>${groupTitle(gid)}</h3>
+    <table class="gl"><thead><tr><th>${t('gloss.col.en')}</th><th>${t('gloss.col.vi')}</th><th>${t('gloss.col.def')}</th></tr></thead>
+    <tbody>${GLOSSARY.filter((e) => e.group === gid).map(glossRow).join('')}</tbody></table></section>`).join('');
+  openModal(`<h2>${t('gloss.title')}</h2>
+    <p class="fine">${t('gloss.note')}</p>
+    <div class="gl-tools"><button class="big ghost" data-act="rules">◀ ${t('back')}</button><input type="search" class="gl-filter" data-gfilter placeholder="${t('gloss.filter')}" aria-label="${t('gloss.filter')}"></div>
+    <div class="gl-body">${groups}</div>
+    <p class="muted gl-none" hidden>${t('gloss.none')}</p>`, 'm-gloss');
+}
+// Shows only the glossary rows that contain the search text, and hides the groups left empty.
+function filterGlossary(q) {
+  const needle = q.trim().toLowerCase();
+  for (const row of $$('#modal .gl tbody tr')) row.hidden = !!needle && !row.textContent.toLowerCase().includes(needle);
+  for (const sec of $$('#modal .gl-group')) sec.hidden = !sec.querySelector('tbody tr:not([hidden])');
+  $('#modal .gl-none').hidden = $$('#modal .gl tbody tr:not([hidden])').length > 0;
 }
 
 function zoneModal(zone, pid) {
@@ -398,15 +541,16 @@ function zoomContent(g, el) {
     const pid = +el.dataset.tpid;
     const d = TACTIC_DEFS[tid];
     const rows = tacticFacts(g, pid, tid).map(([k, v]) => `<tr><th>${esc(k)}</th><td>${esc(v)}</td></tr>`).join('');
-    return `<img src="${IMG(d.img)}" alt=""><div class="zt"><h4>${esc(d.name)}</h4><table>${rows}</table></div>`;
+    return `${zoomFace(d.img, d.name)}<div class="zt"><h4>${esc(d.name)}</h4><table>${rows}</table>${descBlock(tacticDesc(tid), t('step.' + d.step))}</div>`;
   }
-  const uid = +el.dataset.uid;
-  const c = g.C(uid);
-  if (!c) return null;
-  const rows = D_cardRows(g, uid);
-  return `<img src="${IMG(c.def.img)}" alt=""><div class="zt"><h4>${esc(c.def.name)}</h4><table>${rows}</table></div>`;
+  return cardZoomHtml(g, +el.dataset.uid);
 }
 const D_cardRows = (g, uid) => cardFacts(g, uid).map(([k, v]) => `<tr><th>${esc(k)}</th><td>${esc(v)}</td></tr>`).join('');
+function cardZoomHtml(g, uid) {
+  const c = g.C(uid);
+  if (!c) return null;
+  return `${zoomFace(c.def.img, c.def.name)}<div class="zt"><h4>${esc(c.def.name)}</h4><table>${D_cardRows(g, uid)}</table>${descBlock(cardDesc(g, uid), '', cardFlavour(g, uid))}</div>`;
+}
 
 function showZoom(el, pinned, ev) {
   const s = ui.session;
@@ -414,14 +558,14 @@ function showZoom(el, pinned, ev) {
   const g = s.game;
   let html;
   if (typeof el === 'number') {
-    const c = g.C(el);
-    if (!c) return;
-    html = `<img src="${IMG(c.def.img)}" alt=""><div class="zt"><h4>${esc(c.def.name)}</h4><table>${D_cardRows(g, el)}</table></div>`;
+    html = cardZoomHtml(g, el);
   } else {
     if (el.classList.contains('back')) return;
     html = zoomContent(g, el);
   }
   if (!html) return;
+  // a pinned zoom must not be replaced by a hover timer that was started before the click
+  if (pinned) clearTimeout(zoomTimer);
   const z = $('#zoom');
   const landscape = (typeof el === 'number' ? g.C(el).kind === 'k' : el.classList.contains('kc'));
   z.className = (pinned ? 'pinned ' : '') + (landscape ? 'land' : 'port');
@@ -435,8 +579,44 @@ function showZoom(el, pinned, ev) {
 }
 function hideZoom() {
   clearTimeout(zoomTimer);
+  hideTerm();
   const z = $('#zoom');
   if (z) { z.hidden = true; z.innerHTML = ''; }
+}
+
+// A game term (**Term** in the card text) shows its glossary meaning in a popover when tapped or clicked.
+// Touch screens have no hover, so the native title tooltip is only a desktop extra.
+function showTerm(el) {
+  const word = el.textContent.trim();
+  const entry = GLOSSARY_BY_FORM.get(word.toLowerCase());
+  if (!entry) return;
+  let tip = $('#termtip');
+  if (!tip) {
+    tip = document.createElement('div');
+    tip.id = 'termtip';
+    tip.className = 'termtip';
+    tip.setAttribute('role', 'tooltip');
+    document.body.appendChild(tip);
+  }
+  const def = lang === 'en' ? entry.def.en : entry.def.vi;
+  // the word as printed on the card, then the name of its glossary entry in the current language
+  // (a form can map to another entry, e.g. Start of Year to Round)
+  const name = lang === 'en' ? entry.en : entry.vi;
+  const named = name && name.toLowerCase() !== word.toLowerCase();
+  tip.innerHTML = `<b>${esc(word)}</b>${named ? ` <span>(${esc(name)})</span>` : ''}<p>${esc(def)}</p>`;
+  tip.hidden = false;
+  // below the term, or above it when there is no room below; kept inside the screen
+  const r = el.getBoundingClientRect();
+  const w = tip.offsetWidth;
+  const h = tip.offsetHeight;
+  const below = r.bottom + 8;
+  const above = r.top - h - 8;
+  tip.style.top = (below + h > window.innerHeight - 8 && above > 8 ? above : below) + 'px';
+  tip.style.left = Math.min(Math.max(8, r.left + r.width / 2 - w / 2), window.innerWidth - w - 8) + 'px';
+}
+function hideTerm() {
+  const tip = $('#termtip');
+  if (tip) tip.hidden = true;
 }
 const zoomable = (e) => e.target.closest('.card:not(.back), .kc:not(.back), .tac');
 
@@ -447,6 +627,7 @@ function doAct(name, el) {
     case 'start': startGame(); break;
     case 'continue': continueGame(); break;
     case 'rules': rulesModal(); break;
+    case 'glossary': glossaryModal(); break;
     case 'menu': gameMenuModal(); break;
     case 'closeModal': closeModal(); break;
     case 'save': persist(); toast(t('top.saved')); break;
@@ -457,6 +638,8 @@ function doAct(name, el) {
     case 'showEnd': endModal(); break;
     case 'tab': ui.tab = el.dataset.tab; $('#screen-game').dataset.tab = ui.tab; render(); break;
     case 'togdec': ui.decCollapsed = !ui.decCollapsed; $('#decision').classList.toggle('collapsed', ui.decCollapsed); break;
+    case 'drawer': setDrawer(!ui.prefs.drawer); break;
+    case 'viewMine': ui.boardPid = viewerPid(); render(); break;
     case 'ready': ui.viewer = +el.dataset.pid; ui.locked = false; $('#curtain').hidden = true; lastHtml.clear(); render(); break;
     case 'zone': zoneModal(el.dataset.zone, +el.dataset.pid); break;
     case 'confirm': { const req = humanReq(); if (req) submit(D.confirmAnswer(s.game, req)); break; }
@@ -469,6 +652,11 @@ function doAct(name, el) {
 function onClick(e) {
   if (suppressClick) { suppressClick = false; e.preventDefault(); return; }
   const el = e.target;
+  // a game term opens its popover and leaves the zoom and the decision alone
+  const term = el.closest('.term');
+  if (term) { showTerm(term); return; }
+  if (el.closest('#termtip')) { hideTerm(); return; }
+  hideTerm();
   if (ui.screen === 'menu') {
     if (menuClick(e)) return;
     const a = el.closest('[data-act]');
@@ -493,6 +681,13 @@ function onClick(e) {
   const s = ui.session;
   const g = s && s.game;
   const req = humanReq();
+  // a player chip switches the dock to that player's board, unless it is the target being chosen
+  const bv = el.closest('[data-bview]');
+  if (bv && !(req && ui.targets && ui.targets.has('p:' + bv.dataset.bview))) {
+    const pid = +bv.dataset.bview;
+    if (ui.boardPid !== pid) { ui.boardPid = pid; render(); }
+    return;
+  }
   if (!req) {
     const z = zoomable(e);
     if (z && ui.screen === 'game') showZoom(z, true);
@@ -553,6 +748,8 @@ function bindEvents() {
     if (nm && setup) { setup.seats[+nm.dataset.name].name = nm.value; M.saveSetup(setup); }
     const sd = e.target.closest('[data-seed]');
     if (sd && setup) setup.seed = sd.value.replace(/[^0-9]/g, '');
+    const gf = e.target.closest('[data-gfilter]');
+    if (gf) filterGlossary(gf.value);
   });
   document.addEventListener('change', (e) => {
     const c = e.target.closest('[data-chk]');
@@ -564,8 +761,16 @@ function bindEvents() {
     const gc = e.target.closest('[data-gchk]');
     if (gc) { ui.prefs.confirmPicks = gc.checked; savePrefs(); render(); }
   });
+  // the term popover is placed by coordinates, so it closes when the page moves
+  window.addEventListener('scroll', hideTerm, { capture: true, passive: true });
+  window.addEventListener('resize', hideTerm);
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') { if (!$('#zoom').hidden) hideZoom(); else if (ui.modal) closeModal(); }
+    if (e.key === 'Escape') {
+      const tip = $('#termtip');
+      if (tip && !tip.hidden) hideTerm();
+      else if (!$('#zoom').hidden) hideZoom();
+      else if (ui.modal) closeModal();
+    }
     else if ((e.key === 'Enter') && ui.screen === 'game' && !ui.modal && !e.target.closest('input,button,[role=button]')) {
       const req = humanReq();
       if (req && D.canConfirm(ui.session.game, req) && (req.type !== 'select' || req.max > 1 || ui.sel.length)) submit(D.confirmAnswer(ui.session.game, req));

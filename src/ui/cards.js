@@ -1,9 +1,12 @@
 // HTML builders for cards, Kingdom Cards, tactic tiles and tokens.
 
 import { esc, IMG, cls } from './util.js';
-import { t } from './i18n.js';
+import { t, lang } from './i18n.js';
 import { TACTIC_DEFS } from '../data/tactics.js';
 import { FACTION_INFO } from '../data/constants.js';
+import { ARCH_DESC, COMMAND_DESC, TRAIT_DESC } from '../data/descriptions.js';
+import { FACE_TEXT } from '../data/face_text.js';
+import { GLOSSARY_BY_FORM } from '../data/glossary.js';
 
 export const cardName = (g, uid) => g.C(uid).def.name;
 export const cname = (g, u) => (u == null || !g.C(u) ? '' : `<a class="cn" data-zoom="${u}">${esc(g.C(u).def.name)}</a>`);
@@ -100,6 +103,54 @@ export function tacticFacts(g, pid, tid) {
     if (TACTIC_DEFS[tid].markers > 0 && !tac.burned) rows.push(['', t('me.markers', { n: tac.markers })]);
   }
   return rows;
+}
+
+// Printed card text (data/face_text.js) in the current language. The zoom only has Vietnamese and English.
+const faceLang = () => (lang === 'en' ? 'en' : 'vi');
+const pickLang = (o) => (o ? (lang === 'en' ? o.en : o.vi) : '');
+const faceOf = (img) => FACE_TEXT[img] || null;
+
+// Zoom text for a card: its printed box. Basic cards also explain their commands and traits, which are not printed as text.
+export function cardDesc(g, uid) {
+  const c = g.C(uid);
+  const face = faceOf(c.def.img);
+  const printed = face ? face.p[faceLang()] : [];
+  if (c.kind === 'k' || (face && face.t !== 'bas')) return printed;
+  const v = g.view(uid);
+  if (v.blank) return [t('zoom.blank')];
+  const out = [...printed];
+  if (v.arch) out.push(pickLang(ARCH_DESC[v.arch]));
+  for (const cm of new Set(v.cmds.map((x) => x.c))) out.push(pickLang(COMMAND_DESC[cm]));
+  if (v.inv) out.push(pickLang(TRAIT_DESC.inv));
+  if (v.res) out.push(pickLang(TRAIT_DESC.res));
+  if (v.path) out.push(pickLang(TRAIT_DESC.path));
+  return out.filter(Boolean);
+}
+
+export const cardFlavour = (g, uid) => { const face = faceOf(g.C(uid).def.img); return face ? face.f[faceLang()] : ''; };
+export const tacticDesc = (tid) => { const face = faceOf(TACTIC_DEFS[tid].img); return face ? face.p[faceLang()] : []; };
+
+// Game terms are marked **Term** in the data. They stay in English, in bold; the glossary definition is the tooltip.
+export function richText(s) {
+  return String(s).split(/(\*\*[^*]+\*\*)/).map((p) => {
+    if (!p.startsWith('**')) return esc(p);
+    const word = p.slice(2, -2);
+    const entry = GLOSSARY_BY_FORM.get(word.toLowerCase());
+    const def = entry ? pickLang(entry.def) : '';
+    return `<b class="term"${def ? ` title="${esc(def)}"` : ''}>${esc(word)}</b>`;
+  }).join('');
+}
+
+// A block of description paragraphs for the zoom panel (empty string when there is nothing to show).
+export const descBlock = (paras, head = '', flavour = '') => (paras.length || head || flavour
+  ? `<div class="zd">${head ? `<p class="zs">${esc(head)}</p>` : ''}${paras.map((p) => `<p>${richText(p)}</p>`).join('')}${flavour ? `<p class="zf">${esc(flavour)}</p>` : ''}</div>`
+  : '');
+
+// The card face shown in the zoom: the printed image as it is, so the English on the card stays readable.
+// The Vietnamese text is in the description panel (descBlock), not drawn over the card.
+export function zoomFace(img, alt = '') {
+  const face = faceOf(img);
+  return `<div class="zface" style="--ar:${face ? face.ar : 0.5836}"><img src="${IMG(img)}" alt="${esc(alt)}" draggable="false"></div>`;
 }
 
 export { cls };

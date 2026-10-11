@@ -1,4 +1,4 @@
-// Panel renderers: top bar, Great Road, Councils, Map, player boards, dock and opponents.
+// Panel renderers: top bar, Great Road, Councils, Map, player boards and the dock (the board in focus).
 // Each returns an HTML string; interactivity is attached by event delegation (see app.js).
 
 import { esc } from './util.js';
@@ -20,9 +20,9 @@ export function topbar(g, req) {
   const order = S.order.map((pid, i) => {
     const p = g.P(pid);
     const active = req && req.pid === pid;
-    return `<span class="sc f-${p.faction}${active ? ' act' : ''}${S.kf.holder === pid ? ' kf' : ''}" data-tg="p:${pid}" title="${esc(p.name)}">
+    return `<span class="sc f-${p.faction}${active ? ' act' : ''}${S.kf.holder === pid ? ' kf' : ''}" data-tg="p:${pid}" data-bview="${pid}" title="${esc(p.name)}">
       <i class="no">${i + 1}</i>${emblem(p.faction)}<b class="nm">${esc(p.name)}</b>
-      <span class="v">${tok('inf1')}<em>${p.inf}</em></span><span class="v">${tok('lore')}<em>${p.lore}</em></span>${S.kf.holder === pid ? tok('favour', 'kfi') : ''}</span>`;
+      <span class="v">${tok('inf1')}<em data-k="inf:${pid}" data-v="${p.inf}">${p.inf}</em></span><span class="v">${tok('lore')}<em data-k="lore:${pid}" data-v="${p.lore}">${p.lore}</em></span>${S.kf.holder === pid ? tok('favour', 'kfi') : ''}</span>`;
   }).join('');
   const sub = S.phase === 'end' ? t('phase.end') : t('top.round', { round: Math.max(1, S.round), max: g.maxRounds() });
   return `<div class="tb-l"><button class="ib" data-act="menu" title="${t('top.menu')}">☰</button><span class="logo">${t('app.title')}</span></div>
@@ -66,32 +66,39 @@ export function councilsPanel(g) {
 }
 
 // ----------------------------------------------------------------------------- Map
-function groupHtml(g, r, pid) {
+// mode 'up': Supporters and face-up Active cards (left side slot); 'dn': face-down cards (right side slot).
+// Returns '' when the player has nothing in that slot.
+function groupHtml(g, r, pid, mode) {
   const S = g.S;
   const f = g.P(pid).faction;
   const R = S.region[r];
   const sup = R.sup[pid] || 0;
   const fresh = Math.min(sup, R.fresh[pid] || 0);
-  const act = g.zone(g.zk.active(r)).filter((u) => g.C(u).owner === pid);
+  if (mode === 'up') {
+    const act = g.zone(g.zk.active(r)).filter((u) => g.C(u).owner === pid);
+    if (!sup && !act.length) return '';
+    let discs = '';
+    for (let i = 0; i < sup; i++) discs += `<i class="disc f-${f}${i < fresh ? ' fresh' : ''}"></i>`;
+    const cards = act.map((u) => fcard(g, u, { size: 'mini', str: true })).join('');
+    return `<div class="pg f-${f}" data-tg="p:${pid}"><span class="pg-tag">${emblem(f)}<b>${esc(g.P(pid).name)}</b></span>`
+      + `${discs ? `<span class="pg-sup" title="${t('sup')}: ${sup} (${t('map.fresh')} ${fresh})">${discs}</span>` : ''}<span class="pg-cards">${cards}</span></div>`;
+  }
   const down = g.zone(g.zk.down(r)).filter((u) => g.C(u).owner === pid);
-  const heralds = '';
-  if (!sup && !act.length && !down.length) return '';
-  let discs = '';
-  for (let i = 0; i < sup; i++) discs += `<i class="disc f-${f}${i < fresh ? ' fresh' : ''}"></i>`;
-  const cards = act.map((u) => fcard(g, u, { size: 'mini', str: true })).join('')
-    + down.map((u) => (canSee(pid) ? fcard(g, u, { size: 'mini', str: true, cls: 'dn', badge: '<b class="bd dnb">↓</b>' }) : fcard(g, u, { size: 'mini', down: true, owner: f }))).join('');
-  return `<div class="pg f-${f}" data-tg="p:${pid}">
-    <span class="pg-tag">${emblem(f)}<b>${esc(g.P(pid).name)}</b></span>
-    ${discs ? `<span class="pg-sup" title="${t('sup')}: ${sup} (${t('map.fresh')} ${fresh})">${discs}</span>` : ''}
-    <span class="pg-cards">${cards}</span>${heralds}</div>`;
+  if (!down.length) return '';
+  // Face-down cards stay hidden from everyone but their owner (see canSee).
+  const cards = down.map((u) => (canSee(pid)
+    ? fcard(g, u, { size: 'mini', str: true, cls: 'dn', badge: '<b class="bd dnb">↓</b>' })
+    : fcard(g, u, { size: 'mini', down: true, owner: f }))).join('');
+  return `<div class="pg pg-dn f-${f}" data-tg="p:${pid}"><span class="pg-tag">${emblem(f)}<b>${esc(g.P(pid).name)}</b></span><span class="pg-cards">${cards}</span></div>`;
 }
 
-function locHtml(g, loc) {
+// pos: 'la' | 'lb' — the Location on the left or right half of its Region.
+function locHtml(g, loc, pos) {
   const S = g.S;
   const heralds = S.order.filter((pid) => S.herald[pid] === loc).map((pid) => `<span class="hrl f-${g.P(pid).faction}" title="${t('map.herald')}: ${esc(g.P(pid).name)}">${tok('marker_' + g.P(pid).faction)}</span>`).join('');
   const kcs = g.zone(g.zk.locKC(loc)).map((u) => kcard(g, u, { size: 'xs' })).join('');
   const marks = S.order.filter((pid) => (S.lmark[loc][pid] || 0) > 0).map((pid) => `<span class="lmk f-${g.P(pid).faction}" title="${t('council.marker')}">◆${S.lmark[loc][pid]}</span>`).join('');
-  return `<div class="loc loc-${loc}" data-tg="l:${loc}" title="${esc(t('loc.reward.' + loc))}">
+  return `<div class="loc loc-${loc} ${pos}" data-tg="l:${loc}" title="${esc(t('loc.reward.' + loc))}">
     <div class="ln"><b>${t('loc.' + loc)}</b><span class="lrw">${t('loc.short.' + loc)}</span></div>
     <div class="lx">${heralds}${kcs}${marks}</div></div>`;
 }
@@ -108,11 +115,15 @@ export function regionHtml(g, r) {
     const tt = g.clashTotals();
     totals = `<div class="tot"><span class="tl">${t('map.clash', { n: cl.n })}</span>` + cl.participants.map((pid) => `<span class="tv f-${g.P(pid).faction}">${emblem(g.P(pid).faction)}<b>${tt[pid] || 0}</b></span>`).join('') + '</div>';
   }
-  const groups = S.order.map((pid) => groupHtml(g, r, pid)).join('');
+  // Layout: [left slot: Active + Supporters] [Location half] [Location half] [right slot: face-down].
+  const up = S.order.map((pid) => groupHtml(g, r, pid, 'up')).join('');
+  const dn = S.order.map((pid) => groupHtml(g, r, pid, 'dn')).join('');
+  const [locA, locB] = REGIONS[r].locs;
   return `<section class="region rg-${r}${cl ? ' hot' : ''}${S.resolved[r] ? ' done' : ''}" data-tg="r:${r}">
     <header class="rg-hd">${marker}<b class="rn">${t('region.' + r)}</b>${regKC ? `<span class="rkc">${regKC}</span>` : ''}${totals}</header>
-    <div class="rg-body">${groups || `<span class="muted">${t('map.noCards')}</span>`}</div>
-    <div class="rg-locs">${REGIONS[r].locs.map((l) => locHtml(g, l)).join('')}</div></section>`;
+    <div class="rg-slot sl-up${up ? '' : ' empty'}" data-hint="${t('map.active')}">${up}</div>
+    ${locHtml(g, locA, 'la')}${locHtml(g, locB, 'lb')}
+    <div class="rg-slot sl-dn${dn ? '' : ' empty'}" data-hint="${t('map.down')}">${dn}</div></section>`;
 }
 
 export function mapPanel(g) {
@@ -161,7 +172,7 @@ export function statsHtml(g, pid) {
   const sop = g.zone(g.zk.sop(pid)).length;
   const btn = (zone, label, n) => `<button class="chip btn" data-act="zone" data-zone="${zone}" data-pid="${pid}" title="${label}"><span class="ci">${label}</span><b>${n}</b></button>`;
   return `<div class="stats">
-    ${chip(tok('inf1'), p.inf, 'inf', `title="${t('inf')}"`)}${chip(tok('lore'), p.lore, 'lore', `title="${t('lore')}"`)}
+    ${chip(tok('inf1'), p.inf, 'inf', `title="${t('inf')}" data-k="inf:${pid}" data-v="${p.inf}"`)}${chip(tok('lore'), p.lore, 'lore', `title="${t('lore')}" data-k="lore:${pid}" data-v="${p.lore}"`)}
     ${chip('<span class="ci">✋</span>', `${hand}/${p.handSize}`, 'hand', `title="${t('handSize')}"`)}
     <span class="chip deckc" title="${t('deck')}"><span class="ci">${t('deck')}</span><b>${deck}</b></span>
     ${btn('discard', t('discard'), disc)}${btn('lost', t('lost'), lost)}${btn('sop', t('sop'), sop)}
@@ -170,34 +181,34 @@ export function statsHtml(g, pid) {
   </div>`;
 }
 
-// ----------------------------------------------------------------------------- dock & opponents
-export function mePanel(g) {
-  const pid = viewerPid();
+// ----------------------------------------------------------------------------- dock: the board in focus
+// Shows player `pid`'s board. Only the viewer sees their own hand face-up; everyone else's is face-down.
+export function mePanel(g, pid) {
   const p = g.P(pid);
-  return `<div class="me-hd"><span class="pname f-${p.faction}">${emblem(p.faction)}<b>${esc(p.name)}</b><em>${t('faction.' + p.faction)}</em></span>${statsHtml(g, pid)}</div>
-    ${boardHtml(g, pid, { cls: 'own' })}${supplyHtml(g, pid)}`;
+  const who = p.type === 'ai' ? 'AI · ' + t('level.' + (p.level || 'normal')) : t('type.human');
+  const back = humanPids().length && pid !== viewerPid() ? `<button class="chip btn" data-act="viewMine">${t('me.backToMine')}</button>` : '';
+  // The back chip sits right after the name so it does not take a line of its own.
+  // The board gets its own box, so CSS can fit it to the height left under the header and supply (.me-board in style.css).
+  return `<div class="me-hd"><span class="pname f-${p.faction}">${emblem(p.faction)}<b>${esc(p.name)}</b><em>${t('faction.' + p.faction)}</em><small class="ptype">${who}</small></span>${back}${statsHtml(g, pid)}</div>
+    <div class="me-board">${boardHtml(g, pid, { cls: 'own' })}</div>${supplyHtml(g, pid)}`;
 }
 
-export function handPanel(g, req) {
-  const pid = viewerPid();
-  if (!humanPids().length) return '';
-  const hand = handSorted(g, pid);
-  const bid = g.zone(g.zk.bid(pid)).slice();
-  const cards = hand.map((u) => fcard(g, u, { size: 'hand', str: false })).join('');
-  const bidH = bid.map((u) => fcard(g, u, { size: 'hand', str: false, cls: 'bidc' })).join('');
-  return `<div class="hand-hd"><b>${t('hand')}</b> <span>${hand.length}/${g.P(pid).handSize}</span></div><div class="hand">${cards || `<span class="muted">${t('zone.empty')}</span>`}${bidH ? `<div class="bidsep"></div>${bidH}` : ''}</div>`;
-}
-
-export function oppsPanel(g, req) {
-  const v = viewerPid();
-  const opps = g.S.order.filter((pid) => pid !== v);
-  return opps.map((pid) => {
-    const p = g.P(pid);
-    const hand = g.zone(g.zk.hand(pid)).length + g.zone(g.zk.bid(pid)).length;
-    const act = req && req.pid === pid;
-    return `<div class="opp f-${p.faction}${act ? ' act' : ''}" data-tg="p:${pid}"><div class="opp-hd"><span class="pname">${emblem(p.faction)}<b>${esc(p.name)}</b><em>${p.type === 'ai' ? 'AI · ' + t('level.' + (p.level || 'normal')) : t('type.human')}</em></span><span class="oh">${t('opp.handN', { n: hand })}</span></div>
-      ${boardHtml(g, pid, { cls: 'opp' })}${statsHtml(g, pid)}${supplyHtml(g, pid)}</div>`;
-  }).join('');
+export function handPanel(g, pid) {
+  const p = g.P(pid);
+  const open = canSee(pid);
+  const zone = g.zone(g.zk.hand(pid));
+  // Hidden hands keep engine order: sorting by Strength would reveal what the cards are.
+  const cards = open
+    ? handSorted(g, pid).map((u) => fcard(g, u, { size: 'hand', str: false })).join('')
+    : zone.map((u) => fcard(g, u, { size: 'hand', down: true, owner: p.faction })).join('');
+  const bid = g.zone(g.zk.bid(pid));
+  const bidH = open
+    ? bid.map((u) => fcard(g, u, { size: 'hand', str: false, cls: 'bidc' })).join('')
+    : bid.map((u) => fcard(g, u, { size: 'hand', down: true, owner: p.faction, cls: 'bidc' })).join('');
+  const label = open ? t('hand') : `${esc(p.name)} · ${t('hand')}`;
+  // --hn / --hsep let the CSS fit the cards to the row (see the desktop hand rule in style.css).
+  const fit = `--hn:${zone.length + bid.length};--hsep:${bid.length ? 46 : 0}px`;
+  return `<div class="hand-hd"><b>${label}</b> <span>${zone.length}/${p.handSize}</span></div><div class="hand" style="${fit}">${cards || `<span class="muted">${t('zone.empty')}</span>`}${bidH ? `<div class="bidsep"></div>${bidH}` : ''}</div>`;
 }
 
 export { handSorted, canSee, has, pspan, FACTION_INFO, KF_DEFS, LOC_IDS };
