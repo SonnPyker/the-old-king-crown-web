@@ -30,8 +30,8 @@ export const GLOSSARY = [
     def: { vi: 'Mùa có các Hành động Thu: người chơi dùng các lá có hiệu ứng Thu.', en: 'Season of the Autumn Actions: players use cards with an Autumn effect.' } },
   { id: 'winter', group: 'round', en: 'Winter', forms: ['Winter'], vi: 'Mùa Đông',
     def: {
-      vi: 'Dọn dẹp cuối năm. Ảnh hưởng đặt bằng Triển khai được trả về Kho; lá vẫn ở Vùng.',
-      en: 'Winter cleanup at the end of the Year. Influence placed by Deploy returns to the Supply; the cards stay in their Regions.',
+      vi: 'Dọn dẹp cuối năm. Ảnh hưởng đặt bằng Triển khai được trả về Reserve; lá vẫn ở Vùng.',
+      en: 'Winter cleanup at the end of the Year. Influence placed by Deploy returns to the Reserve; the cards stay in their Regions.',
     } },
   { id: 'spring_action', group: 'round', en: 'Spring Action', forms: ['Spring Action', 'Spring Actions'], vi: 'Hành động Xuân',
     def: { vi: 'Bước hành động Mùa Xuân: người chơi dùng các lá có hiệu ứng Xuân.', en: 'Spring action step: players use cards with a Spring effect.' } },

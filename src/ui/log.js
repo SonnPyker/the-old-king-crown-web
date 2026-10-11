@@ -29,11 +29,15 @@ function fmt(g, k, v, e) {
     case 'loc': return t('loc.' + v);
     case 'council': return t('council.' + v);
     case 'order': case 'tied': return v.map((p) => pspan(g, p)).join(' › ');
+    case 'regions': return v.map((r) => t('region.' + r)).join(' › ');
     case 'tid': return esc(TACTIC_DEFS[v] ? TACTIC_DEFS[v].name : v);
     case 'why': return has('why.' + v) ? t('why.' + v) : '';
     case 'fx': return t('fx.' + v);
     case 'faction': return t('kf.' + v);
     case 'phase': return t('phase.' + v);
+    case 'step': return t('step.' + v);
+    // Lore paid for a Site of Power; a free acquisition logs 0 and shows nothing.
+    case 'cost': return v > 0 ? ` (${v} ${t('lore')})` : '';
     case 'bids': return Object.keys(v).map((p) => `${pspan(g, +p)} ${cname(g, v[p])} <b>${e.str ? e.str[p] : ''}</b>`).join(' · ');
     case 'totals': return Object.keys(v).map((p) => `${pspan(g, +p)} <b>${v[p]}</b>`).join(' · ');
     default: return esc(v);

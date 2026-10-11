@@ -132,9 +132,11 @@ export const FACTION_LOGIC = {
         const k = yield* g.chooseCard(pid, kcs, { purpose: 'moonshineKC', prompt: 'p.pickKC', intent: 'good', ctx: { kc: true } });
         if (k == null) return;
         const hand = g.zone(g.zk.hand(pid)).filter((u) => ['captain', 'champion'].includes(g.view(u).arch));
-        let occ = null;
-        if (g.C(k).def.kind === 'occupy') occ = yield* g.chooseCard(pid, hand, { purpose: 'moonshineOcc', prompt: 'p.pickOccupant', intent: 'cost' });
-        yield* g.gainKC(pid, k, { occupant: occ, onlySlot: 2 });
+        // Occupy kinds keep the card on the Kingdom Card; bold kinds discard it as the bidding card.
+        const prompt = g.C(k).def.kind === 'occupy' ? 'p.pickOccupant' : 'p.pickBidding';
+        const occ = yield* g.chooseCard(pid, hand, { purpose: 'moonshineOcc', prompt, intent: 'cost' });
+        if (occ == null) return;
+        yield* g.gainKC(pid, k, { occupant: occ, bidCard: occ, onlySlot: 2 });
         g.repopulateRoad(0);
       },
     }],

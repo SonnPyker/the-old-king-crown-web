@@ -22,12 +22,18 @@ Object.assign(Game.prototype, {
     if (cl && cl.region === r && c.def.arch !== 'heir') {
       for (const u of cl.cards) {
         const g = this.C(u);
-        if (g.owner !== c.owner && g.def.logic === 'guerrilla' && g.z === z && !this.isBlankedStatic(g)) mode = 'str';
+        if (g.owner !== c.owner && this.hasGuerrillaText(g) && g.z === z && !this.isBlankedStatic(g)) mode = 'str';
       }
     }
     return mode;
   },
   isBlankedStatic() { return false; },
+  // Guerrilla Fighters' text: the card's current identity, or a Guerrilla rule copied by Ritual of the Tooth.
+  // Uses gain and baseDef directly, not logicIds, because logicIds calls blankMode.
+  hasGuerrillaText(c) {
+    if (this.baseDef(c).logic === 'guerrilla') return true;
+    return c.gain.some((gn) => gn.kind === 'copy' && this.gainValid(gn) && gn.def.logic === 'guerrilla');
+  },
   // Definition the card currently "is" (Shapeshifter's Mirror lasts for the Round).
   baseDef(c) { return c.becomes && c.becomesRound === this.S.round ? c.becomes : c.def; },
 

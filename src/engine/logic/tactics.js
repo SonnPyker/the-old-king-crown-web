@@ -47,14 +47,19 @@ export const TACTIC_LOGIC = {
     can: (g, t, pid) => COUNCILS.some((cn) => g.councilCards(cn).length > 0),
     *run(g, t, pid) {
       const cn = yield* g.chooseCouncil(pid, COUNCILS, { purpose: 'witchTrial', prompt: 'p.witchTrial', intent: 'neutral' });
+      const touched = new Set();
       for (const c of g.councilCards(cn).slice()) {
-        if (c.owner !== pid) yield* g.removeFromCouncil(c.uid, { to: 'discard' });
+        if (c.owner !== pid) { yield* g.removeFromCouncil(c.uid, { to: 'discard' }); touched.add(cn); }
       }
       const mine = COUNCILS.flatMap((x) => g.councilCards(x, pid).map((c) => c.uid));
-      if (!mine.length) return;
-      const chosen = yield* g.chooseCards(pid, mine, { purpose: 'witchTrialDeck', prompt: 'p.witchTrialDeck', min: 0, max: mine.length, ordered: true, intent: 'good' });
-      for (const u of chosen.slice().reverse()) g.toDeckTop(u);
-      if (chosen.length) { g.log('witchTrialDeck', { pid, n: chosen.length }); yield* g.gainLore(pid, chosen.length, 'witchTrial'); }
+      if (mine.length) {
+        const chosen = yield* g.chooseCards(pid, mine, { purpose: 'witchTrialDeck', prompt: 'p.witchTrialDeck', min: 0, max: mine.length, ordered: true, intent: 'good' });
+        for (const u of chosen) touched.add(g.C(u).z.slice(2));
+        for (const u of chosen.slice().reverse()) g.toDeckTop(u);
+        if (chosen.length) { g.log('witchTrialDeck', { pid, n: chosen.length }); yield* g.gainLore(pid, chosen.length, 'witchTrial'); }
+      }
+      // The Syndicate: each Council this Trial removed cards from may also lose your Markers.
+      for (const x of touched) yield* g.syndicateMarkers(pid, x);
     },
   },
 
@@ -156,7 +161,7 @@ export const TACTIC_LOGIC = {
       g.rng.shuffle(g.S.kdiscard);
       const five = g.S.kdiscard.slice(-5);
       g.log('foragers', { pid, cards: five });
-      const k = yield* g.chooseCard(pid, five, { purpose: 'foragers', prompt: 'p.foragers', optional: true, intent: 'good', ctx: { kc: true } });
+      const k = yield* g.chooseCard(pid, five, { purpose: 'foragers', prompt: 'p.foragers', intent: 'good', ctx: { kc: true } });
       if (k == null) return;
       const occ = yield* g.chooseCard(pid, g.zone(g.zk.hand(pid)).slice(), { purpose: 'foragersOcc', prompt: 'p.pickOccupant', intent: 'cost' });
       if (occ == null) return;
@@ -198,6 +203,7 @@ export const TACTIC_LOGIC = {
 
   school_of_the_stars: {
     can: (g, t, pid) => !!g.S.clash && g.supportersOn(g.S.clash.region, pid) >= 2
+      && !g.regionLocked(g.S.clash.region, pid)
       && g.zone(g.zk.lost(pid)).some((u) => g.C(u).kind === 'f'),
     *run(g, t, pid) {
       const here = g.S.clash.region;
