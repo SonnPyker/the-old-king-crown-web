@@ -18,7 +18,7 @@ const levels = val('levels', '') ? val('levels', '').split(',') : null;
 const out = path.join(os.tmpdir(), 'tokc-sim.mjs');
 await build({ entryPoints: ['src/sim_entry.js'], bundle: true, format: 'esm', platform: 'node', outfile: out, logLevel: 'error' });
 const mod = await import(pathToFileURL(out).href + '?t=' + Date.now());
-const { Session, FACTIONS, checkInvariants } = mod;
+const { Session, FACTIONS, checkInvariants, renderLog } = mod;
 const check = !flag('nocheck');
 const realError = console.error;
 console.error = (...a) => { if (a[0] !== 'AI failure') realError(...a); }; // AI problems are counted in `issues` below
@@ -61,6 +61,8 @@ for (let g = 0; g < games; g++) {
       }
     }
     if (!s.done) throw new Error('did not finish in 200000 steps');
+    // The UI formats every log line; one line that cannot be formatted breaks the whole game panel.
+    renderLog(s.game, Infinity);
     stats.steps += n;
     const res = s.result;
     const wf = settings.players[res.winner].faction;

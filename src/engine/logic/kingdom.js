@@ -153,7 +153,9 @@ export const KC_LOGIC = {
         const mine = COUNCILS.flatMap((cn) => g.councilCards(cn, pid).map((c) => c.uid));
         const u = yield* g.chooseCard(pid, mine, { purpose: 'estate', prompt: 'p.estate', intent: 'cost' });
         if (u == null) return;
+        const cn = g.C(u).z.slice(2);
         yield* g.removeFromCouncil(u, { to: 'discard' });
+        yield* g.syndicateMarkers(pid, cn);
         g.changeHandSize(pid, +1);
         yield* g.discardKC(k.uid);
       },
@@ -261,9 +263,10 @@ export const KC_LOGIC = {
         g.leaveHooks(u);
         g.put(u, g.zk.council(cn), 'top');
         g.log('toCouncil', { pid, card: u, council: cn });
-        const others = g.zone(g.zk.council(cn)).filter((x) => x !== u);
-        const chosen = yield* g.chooseCards(pid, others, { purpose: 'diaryDiscard', prompt: 'p.diaryDiscard', min: 0, max: others.length });
+        const cards = g.zone(g.zk.council(cn)).slice();
+        const chosen = yield* g.chooseCards(pid, cards, { purpose: 'diaryDiscard', prompt: 'p.diaryDiscard', min: 0, max: cards.length });
         for (const x of chosen) yield* g.removeFromCouncil(x, { to: 'discard' });
+        if (chosen.length) yield* g.syndicateMarkers(pid, cn);
         yield* g.discardKC(k.uid);
       },
     }],
@@ -319,7 +322,7 @@ export const KC_LOGIC = {
         const pool = g.S.order.flatMap((p) => g.zone(g.zk.lost(p)).filter((u) => g.C(u).kind === 'f'));
         const src = yield* g.chooseCard(pid, pool, { purpose: 'mirrorLost', prompt: 'p.mirrorLost', intent: 'good' });
         if (src == null) return;
-        g.C(mine).becomes = g.C(src).becomes || g.C(src).def;
+        g.C(mine).becomes = g.baseDef(g.C(src));
         g.C(mine).becomesRound = g.S.round;
         g.log('mirror', { pid, card: mine, as: src });
       },
@@ -341,16 +344,18 @@ export const KC_LOGIC = {
     }],
   },
 
+  // Actions are optional and have no target requirement: with an empty Lost Pile the card is just discarded.
   bell: {
     actions: [{
       key: 'bell', step: 'autumn',
-      can: (g, k, pid) => g.zone(g.zk.lost(pid)).some((u) => g.C(u).kind === 'f'),
       *run(g, k, pid) {
         const lost = g.zone(g.zk.lost(pid)).filter((u) => g.C(u).kind === 'f');
-        const top = yield* g.chooseOption(pid, [{ id: 'top', kind: 'opt', label: 'top' }, { id: 'bottom', kind: 'opt', label: 'bottom' }], { purpose: 'bell', prompt: 'p.bell' });
-        const order = yield* g.chooseCards(pid, lost, { purpose: 'bellOrder', prompt: 'p.bellOrder', min: lost.length, max: lost.length, ordered: true });
-        if (top === 'top') for (const u of order.slice().reverse()) g.toDeckTop(u);
-        else for (const u of order) g.toDeckBottom(u);
+        if (lost.length) {
+          const top = yield* g.chooseOption(pid, [{ id: 'top', kind: 'opt', label: 'top' }, { id: 'bottom', kind: 'opt', label: 'bottom' }], { purpose: 'bell', prompt: 'p.bell' });
+          const order = yield* g.chooseCards(pid, lost, { purpose: 'bellOrder', prompt: 'p.bellOrder', min: lost.length, max: lost.length, ordered: true });
+          if (top === 'top') for (const u of order.slice().reverse()) g.toDeckTop(u);
+          else for (const u of order) g.toDeckBottom(u);
+        }
         yield* g.discardKC(k.uid);
       },
     }],
@@ -496,7 +501,7 @@ export const KC_LOGIC = {
     on: {
       *eliminated(g, k, ev, pid) {
         if (ev.pid !== pid) return;
-        if (g.C(ev.uid).def.arch !== 'heir') return;
+        if (g.view(ev.uid).arch !== 'heir') return;
         g.toHand(ev.uid, { force: true });
         yield* g.discardKC(k.uid);
       },
@@ -505,8 +510,8 @@ export const KC_LOGIC = {
 
   banner: {
     actions: [{
+      // "Up to two": with no Supporters on the Map or in the Lost Pile the Action simply does nothing.
       key: 'banner', step: 'autumn',
-      can: (g, k, pid) => g.totalSupOnMap(pid) + g.P(pid).lostSup > 0,
       *run(g, k, pid) {
         for (let i = 0; i < 2; i++) {
           const opts = [];
@@ -518,7 +523,7 @@ export const KC_LOGIC = {
           if (r.kind === 'none') break;
           if (r.kind === 'region') g.removeSup(r.region, pid, 1); else g.P(pid).lostSup -= 1;
           g.P(pid).boardSup += 1;
-          g.log('returnSup', { pid, from: r.kind === 'region' ? r.region : 'lost' });
+          g.log('returnSup', { pid, n: 1, from: r.kind === 'region' ? r.region : 'lost' });
         }
       },
     }],

@@ -281,7 +281,7 @@ Object.assign(Game.prototype, {
     const chosen = yield* this.chooseCards(pid, mine, { purpose: 'retreatCards', prompt: 'p.retreatCards', min: 0, max: mine.length, intent: 'neutral', ctx: { source: uid, region: r } });
     for (const u of chosen) this.toHand(u);
     this.syncClash();
-    this.log('retreat', { pid, source: uid, cards: chosen, region: r });
+    this.log('retreat', { pid, source: uid, cards: chosen, n: chosen.length, region: r });
     if (this.heraldRegion(pid) === r) {
       if (yield* this.yesNo(pid, 'p.retreatHerald', { purpose: 'retreatHerald', intent: 'neutral', ctx: { region: r } })) {
         this.S.herald[pid] = null;
@@ -326,13 +326,13 @@ Object.assign(Game.prototype, {
   *doRally(pid, uid, cmd) {
     if (cmd.mode === 'self') {
       this.toHand(uid);
-      this.log('rally', { pid, cards: [uid] });
+      this.log('rally', { pid, cards: [uid], n: 1 });
       return;
     }
     const cand = this.activeOf(pid);
     const chosen = yield* this.chooseCards(pid, cand, { purpose: 'rallyCards', prompt: 'p.rallyCards', min: 1, max: Math.min(cmd.n || 1, cand.length), intent: 'good', ctx: { source: uid } });
     for (const u of chosen) this.toHand(u);
-    this.log('rally', { pid, cards: chosen });
+    this.log('rally', { pid, cards: chosen, n: chosen.length });
   },
 
   *doDeploy(pid, uid, cmd) {

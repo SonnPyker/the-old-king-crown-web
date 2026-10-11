@@ -21,7 +21,7 @@ export const COMMAND_DESC = {
     en: '**Rally** (optional, once per listed Step): if this card is **Active**, return it to your **Hand** (**Rally** Self) or up to X of your **Active** cards, which may include this one (**Rally** Any X).',
   },
   deploy: {
-    vi: '**Deploy** X (tùy chọn, mỗi bước một lần): từ **Hand**, đặt lá này mặt ngửa cạnh một **Region**. Lá đó **Active** và đặt X **Influence** lấy từ **Supply** lên nó. Ở bước dọn **Winter**, **Influence** được trả về **Supply**, lá vẫn ở **Region**.',
+    vi: '**Deploy** X (tùy chọn, mỗi bước một lần): từ **Hand**, đặt lá này mặt ngửa cạnh một **Region**. Lá đó **Active** và đặt X **Influence** lấy từ **Reserve** lên nó. Ở bước dọn **Winter**, **Influence** được trả về **Reserve**, lá vẫn ở **Region**.',
     en: '**Deploy** X (optional, once per listed Step): from your **Hand**, place this card face-up next to a **Region**. It becomes **Active** and X **Influence** from the Reserve is placed on it. In **Winter** Cleanup the **Influence** returns to the Reserve; the card stays in the **Region**.',
   },
   deadly: {

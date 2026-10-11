@@ -63,7 +63,8 @@ Object.assign(Game.prototype, {
     }
     seq.push(left[0]);
     S.clashOrder = seq;
-    this.log('clashOrder', { pid: placer, order: seq.slice() });
+    // Region indices, not player ids: the UI formats them with region names (see log.js `regions`).
+    this.log('clashOrder', { pid: placer, regions: seq.slice() });
     for (const r of seq) yield* this.resolveRegion(r);
     S.clashOrder = [];
   },

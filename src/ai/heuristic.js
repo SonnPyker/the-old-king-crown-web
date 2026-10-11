@@ -669,6 +669,8 @@ H.relics = (env, req) => {
   return takeBest(scored, req, { threshold: 0.3 });
 };
 H.relicsMarkers = () => ['yes'];
+// Keeping Markers is worth more to the AI (they fund the Relics spend), so it declines the Syndicate option.
+H.syndicateMarkers = () => ['no'];
 
 H.secretsClaim = (env, req) => {
   const scored = req.options.map((o) => ({ o, s: locValue(env, env.pid, o.loc) - LOCATIONS[o.loc].inf + env.jitter() }));
@@ -1182,7 +1184,7 @@ function cardActionScore(env, o, ctx) {
       const saved = g.activeOf(pid).filter((u) => g.C(u).inf === 0).map((u) => env.cv(u));
       return room > 0 && saved.length && !lastRound ? Math.max(...saved) * 1.0 : 0;
     }
-    case 'bell': return lastRound ? 0 : 0.5;
+    case 'bell': return lastRound || !g.zone(g.zk.lost(pid)).some((u) => g.C(u).kind === 'f') ? 0 : 0.5;
     case 'banner': {
       const onMap = g.totalSupOnMap(pid);
       return lastRound ? 0 : Math.min(2, onMap + g.P(pid).lostSup) * 0.6;

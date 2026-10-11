@@ -117,6 +117,16 @@ Object.assign(Game.prototype, {
     this.log('councilRemove', { pid, card: uid, to: dest });
   },
 
+  // The Syndicate: an ability that removes cards from a Council can also remove your own Markers there.
+  // Call once per Council after the removals, and only when at least one card was removed.
+  *syndicateMarkers(pid, cn) {
+    if (!this.hasHQ(pid, 'syndicate')) return;
+    const m = this.S.cmark[cn] && this.S.cmark[cn][pid];
+    if (!m || m.syn + m.bri <= 0) return;
+    if (!(yield* this.yesNo(pid, 'p.syndicateMarkers', { purpose: 'syndicateMarkers', ctx: { council: cn } }))) return;
+    delete this.S.cmark[cn][pid];
+  },
+
   // ----------------------------------------------------------------- journey
   journeyable(uids) { return uids.filter((u) => this.C(u).kind === 'f' && this.view(u).lore >= 1); },
 
@@ -220,13 +230,14 @@ Object.assign(Game.prototype, {
     const uid = yield* this.chooseGovern(pid, cand, { purpose: 'castleGovern', optional: true });
     if (uid == null) return;
     const cn = this.C(uid).z.slice(2);
-    // Discard all other cards at that Council (and markers).
+    // Discard all other cards at that Council.
+    let removed = false;
     for (const o of this.zone(this.zk.council(cn)).slice()) {
       if (o === uid) continue;
       yield* this.removeFromCouncil(o, { to: 'discard' });
+      removed = true;
     }
-    const markers = this.S.cmark[cn];
-    for (const p of Object.keys(markers)) delete markers[p];
+    if (removed) yield* this.syndicateMarkers(pid, cn);
   },
 
   *wildernessReward(pid) {
@@ -281,6 +292,7 @@ Object.assign(Game.prototype, {
           }
           void total;
         }
+        if (chosen.length) yield* this.syndicateMarkers(pid, 'relics');
         if (gain > 0) this.gainInf(pid, gain, 'relics');
       }
     }
