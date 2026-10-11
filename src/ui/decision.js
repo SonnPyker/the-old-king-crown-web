@@ -386,7 +386,8 @@ export function decisionHtml(g, req) {
   return `<div class="dec-hd">${hiddenMark}<span class="pt">${promptText(req)}</span></div><div class="dec-body">${body}</div>${foot ? `<div class="dec-ft">${foot}</div>` : ''}`;
 }
 
-export function waitingHtml(g, req, name) {
+export function waitingHtml(g, req, name, error) {
+  if (error) return `<div class="dec-wait err"><span>${t('top.aiError')}</span></div>`;
   return `<div class="dec-wait"><span class="spin"></span><span>${t('top.thinking', { name: esc(name) })}</span></div>`;
 }
 

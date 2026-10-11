@@ -6,8 +6,10 @@ export const ui = {
   screen: 'menu', // 'menu' | 'game'
   session: null,
   settings: null,
-  prefs: Object.assign({ lang: 'vi', speed: 'normal', confirmPicks: isTouch() }, store.get('prefs', {})),
+  prefs: Object.assign({ lang: 'vi', speed: 'normal', confirmPicks: isTouch(), drawer: true }, store.get('prefs', {})),
   viewer: 0,
+  boardPid: null, // whose board the dock shows (null = follow the active player)
+  activePid: null, // last player seen acting, to detect a turn change
   locked: false, // hot-seat privacy curtain
   reqKey: null, // identifies the request the interaction state below belongs to
   sel: [], // select: chosen option ids (in click order)
@@ -17,7 +19,7 @@ export const ui = {
   tab: 'board', // mobile tab
   modal: null, // { type, ... }
   thinking: false,
-  pumping: false,
+  aiError: null, // set when the AI loop threw; the decision panel shows it instead of "thinking"
   gameOverShown: false,
   hover: null,
 };
